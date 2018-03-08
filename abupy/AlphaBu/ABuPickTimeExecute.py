@@ -43,10 +43,11 @@ class EFitError(Enum):
     OTHER_ERROR = 4
 
 
-def _do_pick_time_work(capital, buy_factors, sell_factors, kl_pd, benchmark, draw=False,
-                       show_info=False, show_pg=False):
+def _do_pick_time_work(symbol,capital, buy_factors, sell_factors, kl_pd, benchmark, draw=False,
+                       show_info=False, show_pg=False, realtime_trade=True):
     """
     内部方法：包装AbuPickTimeWorker进行fit，分配错误码，通过trade_summary生成orders_pd，action_pd
+    :param symbol: 当前股票ID
     :param capital: AbuCapital实例对象
     :param buy_factors: 买入因子序列
     :param sell_factors: 卖出因子序列
@@ -55,12 +56,13 @@ def _do_pick_time_work(capital, buy_factors, sell_factors, kl_pd, benchmark, dra
     :param draw: 是否绘制在对应的金融时间序列上的交易行为
     :param show_info: 是否显示在整个金融时间序列上的交易结果
     :param show_pg: 是否择时内部启动进度条，适合单进程或者每个进程里只有一个symbol进行择时
+    :param realtime_trade: 是否使用实盘交易数据，默认True，当benchmark的enddate为当前日期，并处于开盘中时，则会一直监控实盘变化
     :return:
     """
     if kl_pd is None or kl_pd.shape[0] == 0:
         return None, EFitError.NET_ERROR
 
-    pick_timer_worker = AbuPickTimeWorker(capital, kl_pd, benchmark, buy_factors, sell_factors)
+    pick_timer_worker = AbuPickTimeWorker(symbol, capital, kl_pd, benchmark, buy_factors, sell_factors)
     if show_pg:
         pick_timer_worker.enable_task_pg()
     pick_timer_worker.fit()
@@ -80,7 +82,8 @@ def _do_pick_time_work(capital, buy_factors, sell_factors, kl_pd, benchmark, dra
 @add_process_env_sig
 def do_symbols_with_same_factors(target_symbols, benchmark, buy_factors, sell_factors, capital,
                                  apply_capital=True, kl_pd_manager=None,
-                                 show=False, back_target_symbols=None, func_factors=None, show_progress=True):
+                                 show=False, back_target_symbols=None, func_factors=None, 
+                                 show_progress=True, realtime_trade=True):
     """
     输入为多个择时交易对象，以及相同的择时买入，卖出因子序列，对多个交易对象上实施相同的因子
     :param target_symbols: 多个择时交易对象序列
@@ -94,6 +97,7 @@ def do_symbols_with_same_factors(target_symbols, benchmark, buy_factors, sell_fa
     :param back_target_symbols:  补位targetSymbols为了忽略网络问题及数据不足导致的问题
     :param func_factors: funcFactors在内层解开factors dicts为了do_symbols_with_diff_factors
     :param show_progress: 进度条显示，默认True
+    :param realtime_trade: 是否使用实盘交易数据，默认True，当benchmark的enddate为当前日期，并处于开盘中时，则会一直监控实盘变化
     """
     if kl_pd_manager is None:
         kl_pd_manager = AbuKLManager(benchmark, capital)
@@ -115,9 +119,10 @@ def do_symbols_with_same_factors(target_symbols, benchmark, buy_factors, sell_fa
                     p_buy_factors, p_sell_factors = func_factors(target_symbol)
                 try:
                     kl_pd = kl_pd_manager.get_pick_time_kl_pd(target_symbol)
-                    ret, fit_error = _do_pick_time_work(capital, p_buy_factors, p_sell_factors, kl_pd, benchmark,
+                    ret, fit_error = _do_pick_time_work(target_symbol,capital, p_buy_factors, p_sell_factors, kl_pd, benchmark,
                                                         draw=show, show_info=show,
-                                                        show_pg=(len(target_symbols) == 1 and show_progress))
+                                                        show_pg=(len(target_symbols) == 1 and show_progress),
+                                                        realtime_trade=realtime_trade)
                 except Exception as e:
                     logging.exception(e)
                     continue
@@ -133,7 +138,7 @@ def do_symbols_with_same_factors(target_symbols, benchmark, buy_factors, sell_fa
                         # pop出来代替原先的target
                         target_symbol = back_target_symbols.pop()
                         kl_pd = kl_pd_manager.get_pick_time_kl_pd(target_symbol)
-                        ret, fit_error = _do_pick_time_work(capital, p_buy_factors, p_sell_factors, kl_pd, benchmark,
+                        ret, fit_error = _do_pick_time_work(target_symbol,capital, p_buy_factors, p_sell_factors, kl_pd, benchmark,
                                                             draw=show, show_info=show)
                         if fit_error == EFitError.NO_ORDER_GEN:
                             r_all_fit_symbols_cnt += 1
@@ -187,3 +192,4 @@ def do_symbols_with_diff_factors(target_symbols, benchmark, factor_dict, capital
                                         show=show,
                                         back_target_symbols=back_target_symbols,
                                         func_factors=_func_factors)
+                                        

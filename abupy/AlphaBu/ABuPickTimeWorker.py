@@ -10,8 +10,10 @@ from __future__ import print_function
 
 import copy
 
+import datetime, time
 import numpy as np
 
+from ..MarketBu.ABuSymbolTradePd import ABuSymbolTradePd
 from ..MarketBu import ABuSymbolPd
 from ..FactorBuyBu.ABuFactorBuyBase import AbuFactorBuyBase
 from ..FactorSellBu.ABuFactorSellBase import AbuFactorSellBase
@@ -34,8 +36,9 @@ g_natural_long_task = True
 class AbuPickTimeWorker(AbuPickTimeWorkBase):
     """择时类"""
 
-    def __init__(self, cap, kl_pd, benchmark, buy_factors, sell_factors):
+    def __init__(self, symbol, cap, kl_pd, benchmark, buy_factors, sell_factors):
         """
+        :param symbol: 则是的目标对象
         :param cap: 资金类AbuCapital实例化对象
         :param kl_pd: 择时时间段交易数据
         :param benchmark: 交易基准对象，AbuBenchmark实例对象
@@ -62,6 +65,8 @@ class AbuPickTimeWorker(AbuPickTimeWorkBase):
         self.orders = list()
         # 择时进度条，默认空, 即不打开，不显示择时进度
         self.task_pg = None
+        # symbol对应的交易数据
+        self.symbol_trade_pd = ABuSymbolTradePd(symbol)
 
     def __str__(self):
         """打印对象显示：买入因子列表＋卖出因子列表"""
@@ -130,7 +135,7 @@ class AbuPickTimeWorker(AbuPickTimeWorkBase):
         for sell_factor in self.sell_factors:
             # 迭代卖出因子，每个卖出因子针对今日交易数据，已经所以交易单进行择时
             sell_factor.read_fit_day(today, self.orders)
-
+ 
         # 买入因子行为要在卖出因子下面，否则为高频日交易模式
         for buy_factor in self.buy_factors:
             # 如果择时买入因子没有被封锁执行任务
@@ -187,6 +192,12 @@ class AbuPickTimeWorker(AbuPickTimeWorkBase):
         today.exec_week = today.week_task == 1 if g_natural_long_task else day_cnt % 5 == 0
         # 判断是否执行月任务, 返回结果赋予today对象
         today.exec_month = today.month_task == 1 if g_natural_long_task else day_cnt % 20 == 0
+        # 获取today的实盘每笔交易数据
+
+        time_tuple = time.strptime(str(int(today.date)), "%Y%m%d")
+        year, month, day = time_tuple[:3]
+        strdate = datetime.date(year, month, day).strftime("%Y-%m-%d")
+        today["trade_pd"] = self.symbol_trade_pd.get_trade_pd(strdate)
 
         if day_cnt == 0 and not today.exec_week:
             # 如果是择时第一天，且没有执行周任务，需要初始化买入因子专属周任务选股池子
@@ -238,8 +249,12 @@ class AbuPickTimeWorker(AbuPickTimeWorkBase):
                 >>>>
             """
             self.kl_pd['month_task'] = np.where(self.kl_pd.shift(-1)['date'] - self.kl_pd['date'] > 60, 1, 0)
+        
+        self.symbol_trade_pd.load_trade_records()
         # 通过pandas apply进行交易日递进择时
         self.kl_pd.apply(self._task_loop, axis=1)
+
+        self.symbol_trade_pd.release_trade_records()
 
         if self.task_pg is not None:
             self.task_pg.close_ui_progress()

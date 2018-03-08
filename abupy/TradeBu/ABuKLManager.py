@@ -170,6 +170,12 @@ class AbuKLManager(object):
         self.pick_kl_pd_dict['pick_time'][target_symbol] = kl_pd
         return kl_pd
 
+    def get_pick_trade_kl_pd(self, target_symbol):
+        """对外提供历史实时交易数据，如果当天数据不完善，则从实时环境获取"""
+        datapath = os.path.join(abupy.env.g_project_data_dir,"")
+
+        pass
+
     def filter_pick_time_choice_symbols(self, choice_symbols):
         """
         使用filter筛选出choice_symbols中的symbol对应的择时时间序列不在内部择时字典中的symbol序列
